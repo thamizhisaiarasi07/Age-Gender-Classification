@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Age and Gender Classification</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <span class="badge">Deep Learning &bull; MobileNetV2 Transfer Learning</span>
+      <h1>Age &amp; Gender Classification</h1>
+      <p class="subtitle">Upload a facial image to predict age group and gender.</p>
+    </header>
+
+    <!-- Model Status Warning Banner -->
+    {% if not model_exists %}
+    <div class="alert alert-warning">
+      <strong>Notice:</strong> The trained model file (<code>models/age_gender_model.keras</code>) is missing.
+      Please train the model first by running <code>python train.py</code>.
+    </div>
+    {% endif %}
+
+    <!-- Flash Messages (Errors/Warnings) -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="alert alert-{{ category }}">
+            {{ msg }}
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Image Upload Card -->
+    <div class="card">
+      <form class="upload-form" method="POST" action="/" enctype="multipart/form-data">
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="fileInput" name="image" class="file-input" accept="image/png, image/jpeg, image/jpg" required>
+          <div class="upload-icon">&#128247;</div>
+          <p class="upload-text"><strong>Choose an Image</strong> or drag and drop here</p>
+          <p class="upload-hint">Supported formats: JPG, JPEG, PNG (Single or multiple face portraits)</p>
+        </div>
+
+        <!-- Live Preview of Selected File -->
+        <div class="preview-container" id="previewContainer">
+          <p class="upload-hint" style="margin-bottom: 6px;">Image Preview:</p>
+          <img id="previewImg" src="" alt="Selected Preview">
+        </div>
+
+        <button type="submit" class="btn-submit" id="submitBtn">
+          <span>Predict Age &amp; Gender</span> &rarr;
+        </button>
+      </form>
+    </div>
+
+    <!-- Prediction Results Section -->
+    {% if result %}
+    <div class="card" id="resultsSection">
+      <div class="result-header">
+        <h2 class="result-title">Prediction Results</h2>
+        {% if result.face_detected %}
+          <span class="badge" style="background:#ecfdf5; color:#059669;">
+            {{ result.face_count }} Face{% if result.face_count > 1 %}s{% endif %} Detected
+          </span>
+        {% else %}
+          <span class="badge" style="background:#fef2f2; color:#dc2626;">No Face Detected</span>
+        {% endif %}
+      </div>
+
+      {% if not result.face_detected %}
+        <!-- Friendly Error when Face Detection Fails -->
+        <div class="alert alert-warning">
+          <strong>&#9888; {{ result.message }}</strong>
+        </div>
+        <div class="image-box">
+          <h4>Uploaded Image</h4>
+          <img src="{{ url_for('static', filename=result.original_image_url) }}" alt="Uploaded Image">
+        </div>
+      {% else %}
+
+        <div style="margin-bottom: 24px;">
+          <div class="image-box">
+            <h4>Face Localization &amp; Multi-Face Detection</h4>
+            <img src="{{ url_for('static', filename=result.annotated_image_url) }}" alt="Annotated Faces">
+          </div>
+        </div>
+
+        <!-- Predictions per Detected Face -->
+        <h3 style="font-size: 1.15rem; margin-bottom: 16px; color: #1e293b;">
+          Individual Face Predictions:
+        </h3>
+
+        {% for face in result.faces %}
+        <div style="border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 20px; background: #fafafa;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+            <h4 style="font-size: 1rem; color: #0f172a;">
+              Face #{{ face.face_id }}
+            </h4>
+            <span class="badge" style="background: var(--primary-light); color: var(--primary);">
+              Analysis
+            </span>
+          </div>
+
+          <div class="grid-display">
+            <!-- Left: Face Chip -->
+            <div style="text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+              <span class="upload-hint" style="margin-bottom: 8px;">Cropped Face Region:</span>
+              <img src="{{ url_for('static', filename=face.crop_image_url) }}" alt="Face #{{ face.face_id }}"
+                   style="width: 110px; height: 110px; object-fit: cover; border-radius: 8px; border: 2px solid var(--primary); box-shadow: var(--shadow-sm);">
+            </div>
+
+            <!-- Right: Prediction Badges & Breakdown -->
+            <div>
+              <div class="highlights-grid">
+                <!-- Gender Card -->
+                <div class="highlight-card gender-card">
+                  <div class="highlight-label">Gender</div>
+                  <div class="highlight-value">{{ face.gender }}</div>
+                  <div class="conf-tag">Confidence: {{ face.gender_confidence }}%</div>
+                </div>
+
+                <!-- Age Group Card -->
+                <div class="highlight-card age-card">
+                  <div class="highlight-label">Age Group</div>
+                  <div class="highlight-value">{{ face.age_group }}</div>
+                  <div class="conf-tag" style="color:#7c3aed;">Confidence: {{ face.age_confidence }}%</div>
+                </div>
+              </div>
+
+              <!-- Probability Distribution (Gender) -->
+              <h4 class="breakdown-title" style="font-size: 0.85rem; margin-top: 10px;">Gender Probabilities</h4>
+              {% for g in face.gender_breakdown %}
+              <div class="prob-row">
+                <span class="prob-label">{{ g.label }}</span>
+                <div class="prob-bar-bg">
+                  <div class="prob-bar-fill" style="width: {{ g.prob }}%; background-color: #059669;"></div>
+                </div>
+                <span class="prob-val">{{ g.prob }}%</span>
+              </div>
+              {% endfor %}
+
+              <!-- Probability Distribution (Age Groups) -->
+              <h4 class="breakdown-title" style="font-size: 0.85rem; margin-top: 10px;">Age Group Probabilities</h4>
+              {% for a in face.age_breakdown %}
+              <div class="prob-row">
+                <span class="prob-label" style="width: 55px;">{{ a.label }}</span>
+                <div class="prob-bar-bg">
+                  <div class="prob-bar-fill" style="width: {{ a.prob }}%; background-color: #7c3aed;"></div>
+                </div>
+                <span class="prob-val">{{ a.prob }}%</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Footer -->
+    <footer>
+      <p>Department of Artificial Intelligence &amp; Data Science &bull; Final Year Project Demo</p>
+    </footer>
+  </div>
+
+  <!-- Client-side Preview Script (Vanilla JS) -->
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const previewContainer = document.getElementById('previewContainer');
+    const previewImg = document.getElementById('previewImg');
+
+    fileInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          previewImg.src = event.target.result;
+          previewContainer.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  </script>
+</body>
+</html>
